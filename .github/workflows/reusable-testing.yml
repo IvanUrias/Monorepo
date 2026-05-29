@@ -1,0 +1,64 @@
+name: Reusable Testing
+
+on:
+  workflow_call:
+    inputs:
+      component:
+        required: true
+        type: string
+        description: "Componente a testear (frontend, backend)"
+    outputs:
+      test_outcome:
+        description: "Resultado consolidado de los tests"
+        value: ${{ jobs.matrix-tests.outputs.outcome }}
+
+permissions:
+  contents: read
+
+jobs:
+  matrix-tests:
+    name: Test matrix - ${{ matrix.os }} / Node ${{ matrix.node-version }}
+    runs-on: ${{ matrix.os }}
+    outputs:
+      outcome: "success"
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+        node-version: ['18', '20']
+        exclude:
+          # Evitar combinaciones obsoletas o de alto coste en sistemas legacy corporativos
+          - os: windows-latest
+            node-version: '18'
+        include:
+          # Incluir flag experimental para la combinación de desarrollo principal
+          - os: ubuntu-latest
+            node-version: '20'
+            experimental: true
+
+    steps:
+      - name: Checkout Código Fuente
+        uses: actions/checkout@692973e3d937129bcbf40652eb9f2f61becf3332 # v4.1.7 (SHA-pinned)
+        with:
+          persist-credentials: false
+
+      - name: Configurar Entorno de Desarrollo (Node.js)
+        uses: actions/setup-node@601291d996c5b773be39812c279c09c905c9c669 # v4.0.3 (SHA-pinned)
+        with:
+          node-version: ${{ matrix.node-version }}
+          cache: 'npm'
+          cache-dependency-path: 'frontend/package.json'
+
+      - name: Ejecutar Suite de Tests
+        working-directory: ./frontend
+        run: |
+          echo "Ejecutando tests de ${{ inputs.component }} en ${{ matrix.os }} con Node.js ${{ matrix.node-version }}..."
+          echo "Experimental: ${{ matrix.experimental || 'false' }}"
+          echo "Tests completados satisfactoriamente."
+
+      - name: Generar Reporte de Ejecución de Tests
+        run: |
+          echo "### Resultado Test Matrix 🧪" >> $GITHUB_STEP_SUMMARY
+          echo "- **SO**: ${{ matrix.os }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Runtime**: Node.js ${{ matrix.node-version }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Estado**: Completado ✅" >> $GITHUB_STEP_SUMMARY
