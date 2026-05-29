@@ -43,7 +43,7 @@ jobs:
           persist-credentials: false
 
       - name: Configurar Entorno de Desarrollo (Node.js)
-        uses: actions/setup-node@601291d996c5b773be39812c279c09c905c9c669 # v4.0.3 (SHA-pinned)
+        uses: actions/setup-node@1e60f620b9541d16bece96c5465dc8ee9832be0b # v4.0.3 (SHA-pinned oficial)
         with:
           node-version: ${{ matrix.node-version }}
           cache: 'npm'
