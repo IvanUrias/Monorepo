@@ -41,7 +41,7 @@ jobs:
 
       - name: Filtro de Rutas Modificadas
         id: filter
-        uses: dorny/paths-filter@de9010ab312b329dec4b1230245cb623e1989445 # v3.0.2 (SHA-pinned)
+        uses: dorny/paths-filter@de90cc6fb38fc0963ad72b210f1f284cd68cea36 # v3.0.2 (SHA-pinned)
         with:
           filters: |
             frontend:
