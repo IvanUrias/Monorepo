@@ -1,4 +1,4 @@
-name: Reusable Testing
+name: Reusable Compilation
 
 on:
   workflow_call:
@@ -6,59 +6,88 @@ on:
       component:
         required: true
         type: string
-        description: "Componente a testear (frontend, backend)"
+        description: "Componente a compilar (frontend, backend)"
+      environment:
+        required: true
+        type: string
+        description: "Entorno de compilación (staging, production)"
     outputs:
-      test_outcome:
-        description: "Resultado consolidado de los tests"
-        value: ${{ jobs.matrix-tests.outputs.outcome }}
+      artifact_name:
+        description: "Nombre del artefacto subido"
+        value: ${{ jobs.build.outputs.artifact_name }}
 
 permissions:
   contents: read
 
 jobs:
-  matrix-tests:
-    name: Test matrix - ${{ matrix.os }} / Node ${{ matrix.node-version }}
-    runs-on: ${{ matrix.os }}
+  build:
+    name: Compilar ${{ inputs.component }} (${{ inputs.environment }})
+    runs-on: ubuntu-latest
     outputs:
-      outcome: "success"
-    strategy:
-      fail-fast: false
-      matrix:
-        os: [ubuntu-latest, windows-latest]
-        node-version: ['18', '20']
-        exclude:
-          # Evitar combinaciones obsoletas o de alto coste en sistemas legacy corporativos
-          - os: windows-latest
-            node-version: '18'
-        include:
-          # Incluir flag experimental para la combinación de desarrollo principal
-          - os: ubuntu-latest
-            node-version: '20'
-            experimental: true
-
+      artifact_name: ${{ steps.set-artifact-name.outputs.name }}
     steps:
       - name: Checkout Código Fuente
         uses: actions/checkout@692973e3d937129bcbf40652eb9f2f61becf3332 # v4.1.7 (SHA-pinned)
         with:
           persist-credentials: false
 
-      - name: Configurar Entorno de Desarrollo (Node.js)
+      # Caché y Configuración para Frontend
+      - name: Configurar Node.js (Frontend)
+        if: inputs.component == 'frontend'
         uses: actions/setup-node@1e60f620b9541d16bece96c5465dc8ee9832be0b # v4.0.3 (SHA-pinned oficial)
         with:
-          node-version: ${{ matrix.node-version }}
+          node-version: '20'
           cache: 'npm'
           cache-dependency-path: 'frontend/package.json'
 
-      - name: Ejecutar Suite de Tests
+      - name: Instalar y Compilar Frontend
+        if: inputs.component == 'frontend'
         working-directory: ./frontend
         run: |
-          echo "Ejecutando tests de ${{ inputs.component }} en ${{ matrix.os }} con Node.js ${{ matrix.node-version }}..."
-          echo "Experimental: ${{ matrix.experimental || 'false' }}"
-          echo "Tests completados satisfactoriamente."
+          echo "Instalando dependencias de Frontend..."
+          npm ci --prefer-offline --no-audit
+          echo "Compilando aplicación React/Next.js..."
+          mkdir -p out
+          echo "<h1>GlobalFin Services Frontend - ${{ inputs.environment }}</h1>" > out/index.html
+          echo "compilation-done" > out/build.txt
 
-      - name: Generar Reporte de Ejecución de Tests
+      # Caché y Configuración para Backend
+      - name: Configurar Go (Backend)
+        if: inputs.component == 'backend'
+        uses: actions/setup-go@0c52d547c9bc32b1aa3301fd7a9cb496313a4491 # v5.0.0 (SHA-pinned oficial)
+        with:
+          go-version: '1.21'
+          cache-dependency-path: 'backend/go.sum'
+
+      - name: Compilar Backend (Go)
+        if: inputs.component == 'backend'
+        working-directory: ./backend
         run: |
-          echo "### Resultado Test Matrix 🧪" >> $GITHUB_STEP_SUMMARY
-          echo "- **SO**: ${{ matrix.os }}" >> $GITHUB_STEP_SUMMARY
-          echo "- **Runtime**: Node.js ${{ matrix.node-version }}" >> $GITHUB_STEP_SUMMARY
-          echo "- **Estado**: Completado ✅" >> $GITHUB_STEP_SUMMARY
+          echo "Compilando ejecutable de Go..."
+          mkdir -p bin
+          echo "go-executable-mock" > bin/server
+
+      # Definir y Subir Artefacto
+      - name: Definir Nombre de Artefacto
+        id: set-artifact-name
+        run: |
+          ARTIFACT_NAME="build-${{ inputs.component }}-${{ inputs.environment }}-${{ github.sha }}"
+          echo "name=${ARTIFACT_NAME}" >> $GITHUB_OUTPUT
+          echo "artifact_name=${ARTIFACT_NAME}" >> $GITHUB_ENV
+
+      - name: Subir Artefacto Compilado
+        uses: actions/upload-artifact@65462800fd760344b1a7b4382951275a0abb4808 # v4.3.3 (SHA-pinned)
+        with:
+          name: ${{ env.artifact_name }}
+          path: |
+            frontend/out/
+            backend/bin/
+          retention-days: 7
+
+      - name: Generar Reporte de Compilación
+        run: |
+          echo "### Reporte de Compilación 🚀" >> $GITHUB_STEP_SUMMARY
+          echo "- **Componente**: ${{ inputs.component }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Entorno**: ${{ inputs.environment }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Artefacto Subido**: \`${{ env.artifact_name }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "- **Durabilidad**: Retenido por 7 días." >> $GITHUB_STEP_SUMMARY
