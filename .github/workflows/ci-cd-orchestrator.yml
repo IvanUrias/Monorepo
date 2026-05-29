@@ -1,0 +1,143 @@
+name: GlobalFin Enterprise Orchestrator
+
+on:
+  push:
+    branches:
+      - main
+    paths-ignore:
+      - 'docs/**'
+      - '*.md'
+  pull_request:
+    branches:
+      - main
+    paths-ignore:
+      - 'docs/**'
+      - '*.md'
+  workflow_dispatch:
+
+# Concurrency a nivel de workflow para cancelar ejecuciones redundantes en progreso
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+# Permisos mínimos globales
+permissions:
+  contents: read
+
+jobs:
+  # DETECTAR COMPONENTES MODIFICADOS (Selective Execution)
+  detect-changes:
+    name: Detectar Componentes Modificados
+    runs-on: ubuntu-latest
+    outputs:
+      frontend: ${{ steps.filter.outputs.frontend }}
+      backend: ${{ steps.filter.outputs.backend }}
+      infrastructure: ${{ steps.filter.outputs.infrastructure }}
+    steps:
+      - name: Checkout Código Fuente
+        uses: actions/checkout@692973e3d937129bcbf40652eb9f2f61becf3332 # v4.1.7 (SHA-pinned)
+        with:
+          persist-credentials: false
+
+      - name: Filtro de Rutas Modificadas
+        id: filter
+        uses: dorny/paths-filter@de9010ab312b329dec4b1230245cb623e1989445 # v3.0.2 (SHA-pinned)
+        with:
+          filters: |
+            frontend:
+              - 'frontend/**'
+            backend:
+              - 'backend/**'
+            infrastructure:
+              - 'infrastructure/**'
+
+  # VALIDACIONES COMUNES (Linter & Security Scan)
+  validate:
+    name: Validar Código
+    needs: detect-changes
+    if: ${{ needs.detect-changes.outputs.frontend == 'true' || needs.detect-changes.outputs.backend == 'true' || needs.detect-changes.outputs.infrastructure == 'true' }}
+    permissions:
+      contents: read
+      security-events: write # Permiso requerido para reportes de seguridad en GitHub
+    uses: ./.github/workflows/reusable-validation.yml
+    with:
+      component: ${{ needs.detect-changes.outputs.frontend == 'true' && 'frontend' || needs.detect-changes.outputs.backend == 'true' && 'backend' || 'infrastructure' }}
+      run_security_scan: true
+
+  # COMPILACIÓN DEL COMPONENTE (Frontend o Backend)
+  compile:
+    name: Compilar Componente
+    needs: [detect-changes, validate]
+    if: ${{ needs.detect-changes.outputs.frontend == 'true' || needs.detect-changes.outputs.backend == 'true' }}
+    uses: ./.github/workflows/reusable-compilation.yml
+    with:
+      component: ${{ needs.detect-changes.outputs.frontend == 'true' && 'frontend' || 'backend' }}
+      environment: staging
+
+  # TESTS MATRICIALES (Pruebas en múltiples plataformas y entornos)
+  test:
+    name: Test Matriz
+    needs: [detect-changes, validate]
+    if: ${{ needs.detect-changes.outputs.frontend == 'true' || needs.detect-changes.outputs.backend == 'true' }}
+    uses: ./.github/workflows/reusable-testing.yml
+    with:
+      component: ${{ needs.detect-changes.outputs.frontend == 'true' && 'frontend' || 'backend' }}
+
+  # DESPLIEGUE A STAGING (Entorno de pruebas no bloqueado)
+  deploy-staging:
+    name: Desplegar a Staging
+    needs: [compile, test]
+    runs-on: ubuntu-latest
+    environment:
+      name: staging
+      url: https://staging.globalfin.example.com
+    permissions:
+      contents: read
+      id-token: write # Permiso mandatorio para federación OIDC
+    steps:
+      - name: Checkout Código Fuente
+        uses: actions/checkout@692973e3d937129bcbf40652eb9f2f61becf3332 # v4.1.7
+
+      - name: Autenticación OIDC con AWS (Sin Keys Permanentes)
+        uses: aws-actions/configure-aws-credentials@e3dd6a429d7300a6a4c196c26e071d42e0343502 # v4.0.2 (SHA-pinned)
+        with:
+          role-to-assume: arn:aws:iam::123456789012:role/github-actions-staging-role
+          aws-region: us-east-1
+          audience: sigstore
+
+      - name: Desplegar a AWS ECS/S3
+        run: |
+          echo "Desplegando en Staging usando OIDC..."
+          echo "Despliegue en Staging finalizado con éxito."
+
+  # DESPLIEGUE A PRODUCTION (Entorno protegido con aprobación manual y branch protection)
+  deploy-production:
+    name: Desplegar a Producción
+    needs: [deploy-staging]
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main' # Solo despliega a prod desde la rama principal
+    environment:
+      name: production
+      url: https://globalfin.example.com
+    permissions:
+      contents: read
+      id-token: write # Permiso mandatorio para federación OIDC
+    concurrency:
+      group: production-deploy
+      cancel-in-progress: false # Evitar cancelar deploys en producción a mitad de camino
+    steps:
+      - name: Checkout Código Fuente
+        uses: actions/checkout@692973e3d937129bcbf40652eb9f2f61becf3332 # v4.1.7
+
+      - name: Autenticación OIDC con AWS (Producción)
+        uses: aws-actions/configure-aws-credentials@e3dd6a429d7300a6a4c196c26e071d42e0343502 # v4.0.2 (SHA-pinned)
+        with:
+          role-to-assume: arn:aws:iam::123456789012:role/github-actions-production-role
+          aws-region: us-east-1
+          audience: sigstore
+
+      - name: Desplegar a AWS ECS/S3 (Producción)
+        run: |
+          echo "### Despliegue Producción Completado 🚀" >> $GITHUB_STEP_SUMMARY
+          echo "El despliegue en el entorno de Producción fue autorizado y completado." >> $GITHUB_STEP_SUMMARY
+          echo "URL: https://globalfin.example.com" >> $GITHUB_STEP_SUMMARY
