@@ -1,0 +1,93 @@
+name: Reusable Compilation
+
+on:
+  workflow_call:
+    inputs:
+      component:
+        required: true
+        type: string
+        description: "Componente a compilar (frontend, backend)"
+      environment:
+        required: true
+        type: string
+        description: "Entorno de compilación (staging, production)"
+    outputs:
+      artifact_name:
+        description: "Nombre del artefacto subido"
+        value: ${{ jobs.build.outputs.artifact_name }}
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Compilar ${{ inputs.component }} (${{ inputs.environment }})
+    runs-on: ubuntu-latest
+    outputs:
+      artifact_name: ${{ steps.set-artifact-name.outputs.name }}
+    steps:
+      - name: Checkout Código Fuente
+        uses: actions/checkout@692973e3d937129bcbf40652eb9f2f61becf3332 # v4.1.7 (SHA-pinned)
+        with:
+          persist-credentials: false
+
+      # Caché y Configuración para Frontend
+      - name: Configurar Node.js (Frontend)
+        if: inputs.component == 'frontend'
+        uses: actions/setup-node@601291d996c5b773be39812c279c09c905c9c669 # v4.0.3 (SHA-pinned)
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: 'frontend/package.json'
+
+      - name: Instalar y Compilar Frontend
+        if: inputs.component == 'frontend'
+        working-directory: ./frontend
+        run: |
+          echo "Instalando dependencias de Frontend..."
+          npm ci --prefer-offline --no-audit
+          echo "Compilando aplicación React/Next.js..."
+          mkdir -p out
+          echo "<h1>GlobalFin Services Frontend - ${{ inputs.environment }}</h1>" > out/index.html
+          echo "compilation-done" > out/build.txt
+
+      # Caché y Configuración para Backend
+      - name: Configurar Go (Backend)
+        if: inputs.component == 'backend'
+        uses: actions/setup-go@cd9d5ee6304d7b104e6c1022227ee4e86f8d3145 # v5.0.0 (SHA-pinned)
+        with:
+          go-version: '1.21'
+          cache-dependency-path: 'backend/go.sum'
+
+      - name: Compilar Backend (Go)
+        if: inputs.component == 'backend'
+        working-directory: ./backend
+        run: |
+          echo "Compilando ejecutable de Go..."
+          mkdir -p bin
+          echo "go-executable-mock" > bin/server
+
+      # Definir y Subir Artefacto
+      - name: Definir Nombre de Artefacto
+        id: set-artifact-name
+        run: |
+          ARTIFACT_NAME="build-${{ inputs.component }}-${{ inputs.environment }}-${{ github.sha }}"
+          echo "name=${ARTIFACT_NAME}" >> $GITHUB_OUTPUT
+          echo "artifact_name=${ARTIFACT_NAME}" >> $GITHUB_ENV
+
+      - name: Subir Artefacto Compilado
+        uses: actions/upload-artifact@65462800fd760344b1a7b4382951275a0abb4808 # v4.3.3 (SHA-pinned)
+        with:
+          name: ${{ env.artifact_name }}
+          path: |
+            frontend/out/
+            backend/bin/
+          retention-days: 7
+
+      - name: Generar Reporte de Compilación
+        run: |
+          echo "### Reporte de Compilación 🚀" >> $GITHUB_STEP_SUMMARY
+          echo "- **Componente**: ${{ inputs.component }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Entorno**: ${{ inputs.environment }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Artefacto Subido**: \`${{ env.artifact_name }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "- **Durabilidad**: Retenido por 7 días." >> $GITHUB_STEP_SUMMARY
